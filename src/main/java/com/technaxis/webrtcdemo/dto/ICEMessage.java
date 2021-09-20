@@ -14,9 +14,8 @@ import lombok.Getter;
 @AllArgsConstructor
 public class ICEMessage {
 
-    public static ICEMessage ack() {
-        return new ICEMessage(Operation.ACK, new TextNode(""));
-    }
+    public static final ICEMessage ACK = new ICEMessage(Operation.ACK, null);
+    public static final ICEMessage DISCONNECT = new ICEMessage(Operation.DISCONNECT, null);
 
     public static ICEMessage err(String data) {
         return new ICEMessage(Operation.ERR, new TextNode(data));
@@ -26,6 +25,6 @@ public class ICEMessage {
     private final JsonNode data;
 
     public enum Operation {
-        INIT, ACK, ERR, OFFER, ANSWER, CANDIDATE
+        INIT, ACK, ERR, DISCONNECT, OFFER, ANSWER, CANDIDATE
     }
 }

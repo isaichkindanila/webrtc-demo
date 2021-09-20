@@ -1,6 +1,6 @@
 package com.technaxis.webrtcdemo.configs;
 
-import com.technaxis.webrtcdemo.ws.ICEHandler;
+import com.technaxis.webrtcdemo.ws.ICESignaler;
 import lombok.AllArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
@@ -17,10 +17,10 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 @AllArgsConstructor
 public class WebSocketConfiguration implements WebSocketConfigurer {
 
-    private final ICEHandler iceHandler;
+    private final ICESignaler iceSignaler;
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(iceHandler, "/ice").setAllowedOriginPatterns("*");
+        registry.addHandler(iceSignaler, "/iceSignaler").setAllowedOriginPatterns("*");
     }
 }

@@ -60,7 +60,7 @@
     function initRoom(room) {
         roomP.innerHTML = room.id;
 
-        const signaler = new WebSocket(`ws://${apiDomain}/ice`);
+        const signaler = new WebSocket(`ws://${apiDomain}/iceSignaler`);
         let makingOffer = false;
         let peerConn;
 
@@ -87,7 +87,6 @@
 
             peerConn.oniceconnectionstatechange = () => {
                 if (peerConn.iceConnectionState === "failed") {
-                    console.log('Restarting ICE...');
                     peerConn.restartIce();
                 }
             };
@@ -116,9 +115,7 @@
 
             peerConn.oniceconnectionstatechange = async () => {
                 if (peerConn.iceConnectionState === 'disconnected') {
-                    console.log('Disconnected');
-                    initPeerConnection();
-                    await setupPeerConnection();
+                    await onDisconnect();
                 }
             };
 
@@ -128,6 +125,12 @@
             }
 
             selfView.srcObject = stream;
+        };
+
+        const onDisconnect = async () => {
+            console.log('Disconnected');
+            initPeerConnection();
+            await setupPeerConnection();
         };
 
         signaler.onopen = () => {
@@ -147,6 +150,10 @@
 
                     case 'ACK':
                         await setupPeerConnection();
+                        break;
+
+                    case 'DISCONNECT':
+                        await onDisconnect();
                         break;
 
                     case 'OFFER':

@@ -27,7 +27,7 @@ import java.util.concurrent.Executors;
 @Component
 @AllArgsConstructor
 @Slf4j
-public class ICEHandler extends TextWebSocketHandler {
+public class ICESignaler extends TextWebSocketHandler {
 
     private final RoomService roomService;
     private final ObjectMapper objectMapper;
@@ -37,8 +37,19 @@ public class ICEHandler extends TextWebSocketHandler {
 
     private void removeClosedSessions() {
         rooms.entrySet().removeIf(entry -> {
-            entry.getValue().removeIf(it -> !it.isOpen());
-            return entry.getValue().isEmpty();
+            List<WebSocketSession> sessions = entry.getValue();
+            boolean disconnect = sessions.removeIf(it -> !it.isOpen());
+
+            if (disconnect) {
+                for (WebSocketSession session : sessions) {
+                    try {
+                        sendMessage(session, ICEMessage.DISCONNECT);
+                    } catch (Exception e) {
+                        log.error("Failed to send DISCONNECT to {}", session.getId(), e);
+                    }
+                }
+            }
+            return sessions.isEmpty();
         });
     }
 
@@ -96,7 +107,7 @@ public class ICEHandler extends TextWebSocketHandler {
                     if (roomService.exists(room)) {
                         rooms.computeIfAbsent(room, it -> new ArrayList<>()).add(session);
                         session.getAttributes().put("room", room);
-                        sendMessage(session, ICEMessage.ack());
+                        sendMessage(session, ICEMessage.ACK);
                     } else {
                         sendMessage(session, ICEMessage.err("room not found"));
                         session.close(CloseStatus.SERVER_ERROR);
