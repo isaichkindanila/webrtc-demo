@@ -1,0 +1,185 @@
+<!doctype html>
+<!--suppress HttpUrlsUsage, JSUnresolvedVariable -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>WebRTC Demo</title>
+</head>
+<body>
+<p id="room">none</p>
+<button onclick="createRoom()">CREATE</button>
+<button onclick="joinRoom()">JOIN</button>
+<div>
+    <video autoplay id="self"></video>
+    <video autoplay id="remote"></video>
+</div>
+<script>
+    const apiDomain = 'localhost:8000';
+    const stunTurnDomain = 'localhost';
+
+    const userId = parseInt(prompt('userId'), 10);
+    const roomP = document.querySelector('#room');
+    const selfView = document.querySelector('#self');
+    const remoteView = document.querySelector('#remote');
+
+    function createRoom() {
+        const inviteeId = parseInt(prompt('inviteeId'), 10);
+        fetch(`http://${apiDomain}/rooms`, {
+            method: 'POST',
+            headers: {
+                'Authorization': userId.toString(),
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({inviteeId})
+        })
+            .then(resp => resp.json())
+            .then(room => initRoom(room));
+    }
+
+    function joinRoom() {
+        fetch(`http://${apiDomain}/rooms`, {
+            headers: {
+                Authorization: userId.toString()
+            }
+        })
+            .then(resp => resp.json())
+            .then(rooms => initRoom(rooms[0]));
+    }
+
+    /*
+    RoomDto: {
+      id: string,
+      polite: bool,
+      iceUsername: string,
+      icePassword: string
+    }
+    */
+    function initRoom(room) {
+        roomP.innerHTML = room.id;
+
+        const signaler = new WebSocket(`ws://${apiDomain}/ice`);
+        let makingOffer = false;
+        let peerConn;
+
+        const initPeerConnection = () => {
+            peerConn = new RTCPeerConnection({
+                iceServers: [
+                    {
+                        urls: `stun:${stunTurnDomain}`,
+                        username: room.iceUsername,
+                        credential: room.icePassword
+                    },
+                    {
+                        urls: `turn:${stunTurnDomain}`,
+                        username: room.iceUsername,
+                        credential: room.icePassword
+                    }
+                ]
+            });
+
+            peerConn.ontrack = ev => {
+                ev.track.onunmute = () => remoteView.srcObject = ev.streams[0];
+                ev.track.onmute = () => remoteView.srcObject = null;
+            };
+
+            peerConn.oniceconnectionstatechange = () => {
+                if (peerConn.iceConnectionState === "failed") {
+                    console.log('Restarting ICE...');
+                    peerConn.restartIce();
+                }
+            };
+        };
+
+        const setupPeerConnection = async () => {
+            peerConn.onnegotiationneeded = async () => {
+                try {
+                    makingOffer = true;
+                    await peerConn.setLocalDescription();
+                    signaler.send(JSON.stringify({
+                        operation: 'OFFER',
+                        data: peerConn.localDescription
+                    }));
+                } finally {
+                    makingOffer = false;
+                }
+            }
+
+            peerConn.onicecandidate = ev => {
+                signaler.send(JSON.stringify({
+                    operation: 'CANDIDATE',
+                    data: ev.candidate
+                }));
+            }
+
+            peerConn.oniceconnectionstatechange = async () => {
+                if (peerConn.iceConnectionState === 'disconnected') {
+                    console.log('Disconnected');
+                    initPeerConnection();
+                    await setupPeerConnection();
+                }
+            };
+
+            const stream = await navigator.mediaDevices.getUserMedia({video: true});
+            for (const track of stream.getTracks()) {
+                peerConn.addTrack(track, stream);
+            }
+
+            selfView.srcObject = stream;
+        };
+
+        signaler.onopen = () => {
+            initPeerConnection();
+            signaler.send(JSON.stringify({
+                operation: 'INIT',
+                data: room.id
+            }));
+
+            let ignoreOffer = false;
+            signaler.onmessage = async msg => {
+                const apiMsg = JSON.parse(msg.data);
+                switch (apiMsg.operation) {
+                    case "ERR":
+                        console.error(msg.data);
+                        break;
+
+                    case 'ACK':
+                        await setupPeerConnection();
+                        break;
+
+                    case 'OFFER':
+                        ignoreOffer = !room.polite && makingOffer;
+                        if (ignoreOffer) {
+                            return;
+                        }
+
+                        await peerConn.setRemoteDescription(apiMsg.data);
+                        await peerConn.setLocalDescription();
+
+                        signaler.send(JSON.stringify({
+                            operation: 'ANSWER',
+                            data: peerConn.localDescription
+                        }));
+                        break;
+
+                    case 'ANSWER' :
+                        await peerConn.setRemoteDescription(apiMsg.data);
+                        break;
+
+                    case 'CANDIDATE':
+                        try {
+                            await peerConn.addIceCandidate(apiMsg.data);
+                        } catch (e) {
+                            if (!ignoreOffer) {
+                                throw e;
+                            }
+                        }
+                }
+            }
+        }
+    }
+</script>
+</body>
+</html>
